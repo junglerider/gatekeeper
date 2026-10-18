@@ -1,0 +1,1129 @@
+openapi: 3.0.3
+info:
+  title: Gatekeeper API
+  version: 1.0.0
+  description: |
+    HTTP API for the Gatekeeper identity and access management service.
+
+    Unless otherwise noted, the `realm` query parameter defaults to `api`.
+    Account-creation requests specify `realm` in their JSON body instead.
+    Client and user account-management endpoints require a bearer access token
+    from the `internal` realm. The token must contain
+    `access.gatekeeper: ["admin"]`; GET operations also accept
+    `access.gatekeeper: ["read"]`.
+
+    Authentication and OTP helper endpoints are public. Protect them with TLS
+    and appropriate rate limiting in the deployment environment.
+servers:
+  - url: http://localhost:6501
+    description: Local development server
+tags:
+  - name: Health
+  - name: Clients
+  - name: Users
+  - name: OTP
+paths:
+  /livez:
+    get:
+      tags: [Health]
+      summary: Check service liveness
+      description: Returns a static response to indicate that the service process is running.
+      operationId: getLiveness
+      responses:
+        "200":
+          description: Service process is running.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthReply"
+
+  /readyz:
+    get:
+      tags: [Health]
+      summary: Check service readiness
+      description: Checks that the service can reach its database.
+      operationId: getReadiness
+      responses:
+        "200":
+          description: Service and database are ready.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthReply"
+        "503":
+          description: Database is unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorReply"
+
+  /clients:
+    get:
+      tags: [Clients]
+      summary: List client accounts
+      operationId: listClients
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/Realm"
+        - $ref: "#/components/parameters/IsActive"
+        - $ref: "#/components/parameters/Expiry"
+      responses:
+        "200":
+          description: Client identifiers in the selected realm.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    post:
+      tags: [Clients]
+      summary: Create a client account
+      operationId: createClient
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateClient"
+      responses:
+        "201":
+          description: Client account created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreatedClient"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /clients/{clientId}:
+    parameters:
+      - $ref: "#/components/parameters/ClientId"
+      - $ref: "#/components/parameters/Realm"
+    get:
+      tags: [Clients]
+      summary: Read a client account
+      operationId: getClient
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Client account. Stored credentials are masked.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Client"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    patch:
+      tags: [Clients]
+      summary: Update a client account
+      operationId: updateClient
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateClient"
+      responses:
+        "204":
+          description: Client account updated.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    delete:
+      tags: [Clients]
+      summary: Delete client account(s)
+      description: |
+        Deletes the client with this identifier. If `realm` is omitted, clients
+        with this identifier are deleted from every realm.
+      operationId: deleteClient
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: realm
+          in: query
+          required: false
+          description: Restrict deletion to this realm. Omit to delete the identifier across all realms.
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Client account(s) deleted.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /clients/login:
+    post:
+      tags: [Clients]
+      summary: Log in a client account
+      operationId: loginClient
+      parameters:
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ClientLogin"
+      responses:
+        "200":
+          description: Access and refresh tokens.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TokenPair"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /clients/auth:
+    post:
+      tags: [Clients]
+      summary: Verify a client access token or API key
+      operationId: authenticateClient
+      description: Supply either a JWT access token in `token` or a client `apiKey`.
+      parameters:
+        - $ref: "#/components/parameters/Realm"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ClientAuthentication"
+      responses:
+        "200":
+          description: Verified token claims or API-key claims.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Claims"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /clients/refresh:
+    post:
+      tags: [Clients]
+      summary: Refresh client authentication tokens
+      operationId: refreshClientTokens
+      parameters:
+        - $ref: "#/components/parameters/Realm"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RefreshRequest"
+      responses:
+        "200":
+          description: New access and refresh tokens.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TokenPair"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /clients/logout:
+    post:
+      tags: [Clients]
+      summary: Log out a client account
+      operationId: logoutClient
+      parameters:
+        - $ref: "#/components/parameters/Realm"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RefreshRequest"
+      responses:
+        "200":
+          description: Refresh token revoked.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageReply"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /users:
+    get:
+      tags: [Users]
+      summary: List user accounts
+      operationId: listUsers
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/Realm"
+        - $ref: "#/components/parameters/IsActive"
+        - $ref: "#/components/parameters/Expiry"
+        - name: clientId
+          in: query
+          required: false
+          description: Filter by client identifier.
+          schema:
+            type: string
+            maxLength: 16
+      responses:
+        "200":
+          description: User identifiers in the selected realm.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/UserIdentifier"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    post:
+      tags: [Users]
+      summary: Create a user account
+      operationId: createUser
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateUser"
+      responses:
+        "201":
+          description: User account created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreatedUser"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /users/{clientId}/{name}:
+    parameters:
+      - $ref: "#/components/parameters/ClientId"
+      - $ref: "#/components/parameters/UserName"
+      - $ref: "#/components/parameters/Realm"
+    get:
+      tags: [Users]
+      summary: Read a user account
+      operationId: getUser
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: User account. Password and OTP secret values are masked.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    patch:
+      tags: [Users]
+      summary: Update a user account
+      description: The request must include at least one supported update property.
+      operationId: updateUser
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateUser"
+      responses:
+        "204":
+          description: User account updated.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    delete:
+      tags: [Users]
+      summary: Delete a user account
+      operationId: deleteUser
+      security:
+        - bearerAuth: []
+      responses:
+        "204":
+          description: User account deleted.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /users/login:
+    post:
+      tags: [Users]
+      summary: Log in a user account
+      operationId: loginUser
+      parameters:
+        - $ref: "#/components/parameters/Realm"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserLogin"
+      responses:
+        "200":
+          description: |
+            Access and refresh tokens when OTP is disabled. If OTP is enabled,
+            `accessToken` contains a short-lived challenge token and the refresh
+            token fields are omitted.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TokenPair"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /users/otp/login:
+    post:
+      tags: [Users]
+      summary: Complete a user OTP login
+      operationId: loginUserWithOTP
+      description: Exchanges a password-login challenge token and a six-digit TOTP code for authentication tokens.
+      parameters:
+        - $ref: "#/components/parameters/Realm"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OTPLogin"
+      responses:
+        "200":
+          description: Access and refresh tokens.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TokenPair"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /users/auth:
+    post:
+      tags: [Users]
+      summary: Verify a user access token
+      operationId: authenticateUser
+      parameters:
+        - $ref: "#/components/parameters/Realm"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AccessTokenRequest"
+      responses:
+        "200":
+          description: Verified access-token claims.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Claims"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /users/refresh:
+    post:
+      tags: [Users]
+      summary: Refresh user authentication tokens
+      operationId: refreshUserTokens
+      parameters:
+        - $ref: "#/components/parameters/Realm"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RefreshRequest"
+      responses:
+        "200":
+          description: New access and refresh tokens.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TokenPair"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /users/logout:
+    post:
+      tags: [Users]
+      summary: Log out a user account
+      operationId: logoutUser
+      parameters:
+        - $ref: "#/components/parameters/Realm"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RefreshRequest"
+      responses:
+        "200":
+          description: Refresh token revoked.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageReply"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /otp/secret:
+    get:
+      tags: [OTP]
+      summary: Generate a TOTP secret
+      operationId: generateOTPSecret
+      responses:
+        "200":
+          description: Newly generated secret.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [otpSecret]
+                properties:
+                  otpSecret:
+                    type: string
+
+  /otp/uri:
+    post:
+      tags: [OTP]
+      summary: Generate an otpauth URI
+      operationId: generateOTPURI
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OTPParameters"
+      responses:
+        "200":
+          description: Generated TOTP URI.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [uri]
+                properties:
+                  uri:
+                    type: string
+                    format: uri
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  /otp/qrcode:
+    post:
+      tags: [OTP]
+      summary: Generate a TOTP QR code
+      operationId: generateOTPQRCode
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OTPParameters"
+      responses:
+        "200":
+          description: Generated QR code as SVG.
+          content:
+            image/svg+xml:
+              schema:
+                type: string
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Internal-realm access token with the required gatekeeper permission.
+  parameters:
+    Realm:
+      name: realm
+      in: query
+      required: false
+      description: Configured realm name. Defaults to `api`.
+      schema:
+        type: string
+        default: api
+    IsActive:
+      name: isActive
+      in: query
+      required: false
+      description: Filter by account active state.
+      schema:
+        type: boolean
+    Expiry:
+      name: expiry
+      in: query
+      required: false
+      description: Include accounts whose password expiry is at or before this timestamp.
+      schema:
+        type: string
+        format: date-time
+    ClientId:
+      name: clientId
+      in: path
+      required: true
+      description: Client identifier.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 16
+    UserName:
+      name: name
+      in: path
+      required: true
+      description: User name.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 255
+  responses:
+    BadRequest:
+      description: Request body, parameter, or realm is invalid.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorReply"
+    Unauthorized:
+      description: Missing or invalid credentials, or expired/invalid token.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorReply"
+    Forbidden:
+      description: Token does not have permission for this operation.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorReply"
+    NotFound:
+      description: Account not found.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorReply"
+    Conflict:
+      description: Account already exists.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorReply"
+    InternalError:
+      description: Unexpected server or database error.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorReply"
+  schemas:
+    HealthReply:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          example: OK
+    ErrorReply:
+      type: object
+      required: [statusCode]
+      properties:
+        statusCode:
+          type: integer
+        error:
+          type: string
+        message:
+          type: string
+    MessageReply:
+      type: object
+      required: [statusCode, message]
+      properties:
+        statusCode:
+          type: integer
+          example: 200
+        message:
+          type: string
+          example: OK
+    TokenPair:
+      type: object
+      required: [accessToken]
+      properties:
+        accessToken:
+          type: string
+          description: JWT access token, or an OTP challenge token from password login when OTP is enabled.
+        expiresIn:
+          type: integer
+          description: Access-token lifetime in seconds. Omitted for OTP challenge tokens.
+        refreshToken:
+          type: string
+          description: Omitted for OTP challenge tokens.
+        refreshExpiresIn:
+          type: integer
+          description: Refresh-token lifetime in seconds. Omitted for OTP challenge tokens.
+    Claims:
+      type: object
+      description: JWT claims or API-key authentication claims.
+      additionalProperties: true
+      properties:
+        access:
+          description: Arbitrary access data associated with the account.
+        client_id:
+          type: string
+        sub:
+          type: string
+        iat:
+          type: integer
+        exp:
+          type: integer
+        jti:
+          type: string
+        sid:
+          type: string
+        sex:
+          type: integer
+    RefreshRequest:
+      type: object
+      required: [refreshToken]
+      properties:
+        refreshToken:
+          type: string
+          minLength: 1
+    AccessTokenRequest:
+      type: object
+      required: [token]
+      properties:
+        token:
+          type: string
+          minLength: 1
+    ClientAuthentication:
+      type: object
+      description: Provide either token or apiKey.
+      properties:
+        token:
+          type: string
+        apiKey:
+          type: string
+    ClientLogin:
+      type: object
+      required: [clientId, password]
+      properties:
+        clientId:
+          type: string
+          minLength: 1
+          maxLength: 16
+        password:
+          type: string
+          minLength: 1
+          maxLength: 64
+    UserLogin:
+      type: object
+      required: [clientId, name, password]
+      properties:
+        clientId:
+          type: string
+          minLength: 1
+          maxLength: 16
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+        password:
+          type: string
+          minLength: 1
+          maxLength: 64
+    OTPLogin:
+      type: object
+      required: [challengeToken, otp]
+      properties:
+        challengeToken:
+          type: string
+          minLength: 1
+          maxLength: 4096
+        otp:
+          type: string
+          pattern: "^[0-9]{6}$"
+    OTPParameters:
+      type: object
+      required: [otpSecret, name, service]
+      properties:
+        otpSecret:
+          type: string
+          minLength: 10
+          maxLength: 255
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+        service:
+          type: string
+          minLength: 1
+          maxLength: 255
+    CreateClient:
+      type: object
+      required: [clientId]
+      description: Supply a password, an API key, or both.
+      properties:
+        clientId:
+          type: string
+          minLength: 1
+          maxLength: 16
+        realm:
+          type: string
+          description: Configured realm name; defaults to `api`.
+          default: api
+        password:
+          type: string
+          minLength: 1
+          maxLength: 64
+          description: Minimum length is configured per realm.
+        apiKey:
+          type: string
+          minLength: 10
+          maxLength: 64
+        access:
+          description: Arbitrary JSON access data included in access tokens.
+        isActive:
+          type: boolean
+        pwdExpiry:
+          type: string
+          format: date-time
+      anyOf:
+        - required: [password]
+        - required: [apiKey]
+    CreateUser:
+      type: object
+      required: [clientId, name, password]
+      properties:
+        realm:
+          type: string
+          description: Configured realm name; defaults to `api`.
+          default: api
+        clientId:
+          type: string
+          minLength: 1
+          maxLength: 16
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+        password:
+          type: string
+          minLength: 1
+          maxLength: 64
+          description: Minimum length is configured per realm.
+        access:
+          description: Arbitrary JSON access data included in access tokens.
+        isActive:
+          type: boolean
+          default: true
+        pwdExpiry:
+          type: string
+          format: date-time
+          nullable: true
+        otpEnabled:
+          type: boolean
+          default: false
+        otpSecret:
+          type: string
+          minLength: 16
+          maxLength: 32
+          nullable: true
+    UpdateClient:
+      type: object
+      minProperties: 1
+      properties:
+        apiKey:
+          type: string
+          minLength: 10
+          maxLength: 64
+          nullable: true
+        password:
+          type: string
+          minLength: 1
+          maxLength: 64
+          nullable: true
+          description: Minimum length is configured per realm.
+        isActive:
+          type: boolean
+        access:
+          nullable: true
+          description: Arbitrary JSON access data, or null to clear it.
+        pwdExpiry:
+          type: string
+          format: date-time
+          nullable: true
+    UpdateUser:
+      type: object
+      minProperties: 1
+      properties:
+        password:
+          type: string
+          minLength: 1
+          maxLength: 64
+          description: Minimum length is configured per realm.
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+        access:
+          nullable: true
+          description: Arbitrary JSON access data, or null to clear it.
+        isActive:
+          type: boolean
+        otpEnabled:
+          type: boolean
+        otpSecret:
+          type: string
+          minLength: 16
+          maxLength: 32
+          nullable: true
+        pwdExpiry:
+          type: string
+          format: date-time
+          nullable: true
+    CreatedClient:
+      type: object
+      required: [message, realm, clientId]
+      properties:
+        message:
+          type: string
+          example: created
+        realm:
+          type: string
+        clientId:
+          type: string
+    CreatedUser:
+      type: object
+      required: [message, realm, clientId, name]
+      properties:
+        message:
+          type: string
+          example: created
+        realm:
+          type: string
+        clientId:
+          type: string
+        name:
+          type: string
+    UserIdentifier:
+      type: object
+      required: [clientId, name]
+      properties:
+        clientId:
+          type: string
+        name:
+          type: string
+    Client:
+      type: object
+      required: [clientId, realm]
+      properties:
+        clientId:
+          type: string
+        realm:
+          type: string
+        password:
+          type: string
+          nullable: true
+          description: Masked as `*****` when a password is stored.
+        apiKey:
+          type: string
+          nullable: true
+          description: Masked as `*****` when an API key is stored.
+        access:
+          nullable: true
+          description: Decrypted access data.
+        isActive:
+          type: boolean
+          nullable: true
+        pwdExpiry:
+          type: string
+          format: date-time
+          nullable: true
+        lastLogin:
+          type: integer
+          format: int64
+          nullable: true
+        lastRefresh:
+          type: integer
+          format: int64
+          nullable: true
+        jtiRefresh:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+          nullable: true
+        updatedAt:
+          type: string
+          format: date-time
+          nullable: true
+    User:
+      type: object
+      required: [clientId, realm, name]
+      properties:
+        clientId:
+          type: string
+        realm:
+          type: string
+        name:
+          type: string
+        password:
+          type: string
+          nullable: true
+          description: Masked as `*****` when a password is stored.
+        access:
+          nullable: true
+          description: Decrypted access data.
+        isActive:
+          type: boolean
+          nullable: true
+        pwdExpiry:
+          type: string
+          format: date-time
+          nullable: true
+        lastLogin:
+          type: integer
+          format: int64
+          nullable: true
+        lastRefresh:
+          type: integer
+          format: int64
+          nullable: true
+        jtiRefresh:
+          type: string
+          nullable: true
+        otpEnabled:
+          type: boolean
+          nullable: true
+        otpSecret:
+          type: string
+          nullable: true
+          description: Masked as `*****` when an OTP secret is stored.
+        createdAt:
+          type: string
+          format: date-time
+          nullable: true
+        updatedAt:
+          type: string
+          format: date-time
+          nullable: true

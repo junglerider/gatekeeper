@@ -1,0 +1,18 @@
+CREATE TABLE IF NOT EXISTS `users` (
+  `client_id` VARCHAR(16) NOT NULL,
+  `realm` VARCHAR(16) NOT NULL,
+  `name` VARCHAR(255) NOT NULL,
+  `password` VARCHAR(255) DEFAULT NULL,
+  `access` TEXT DEFAULT NULL,
+  `is_active` TINYINT(1) DEFAULT 1,
+  `pwd_expiry` TIMESTAMP DEFAULT NULL,
+  `last_login` INT UNSIGNED DEFAULT NULL,
+  `last_refresh` INT UNSIGNED DEFAULT NULL,
+  `jti_refresh` VARCHAR(64) DEFAULT NULL,
+  `otp_enabled` TINYINT(1) DEFAULT 0,
+  `otp_secret` VARCHAR(255) DEFAULT NULL,
+  `enc_key` VARCHAR(255) NOT NULL,
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` TIMESTAMP DEFAULT NULL,
+  PRIMARY KEY (`client_id`,`realm`,`name`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
