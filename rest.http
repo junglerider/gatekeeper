@@ -1,0 +1,260 @@
+# Use this file to test the API endpoints of the authentication service. 
+# Example: VSCode REST Client
+@BASE_URL=http://localhost:6501
+@CLIENT=test
+@REALM=api
+@USER_REALM=internal
+@USER_NAME=test-user
+@PASSWORD=Rump3Lstilzk3n
+
+# INTERNAL
+# ========================================
+
+### liveness and readiness checks
+GET {{BASE_URL}}/livez
+
+###
+GET {{BASE_URL}}/readyz
+
+# ADMIN LOGIN
+# ========================================
+# CRUD endpoints require an access token of the internal realm whose access claim contains
+# {"gatekeeper": ["admin"]} (or ["read"] for GET only). Create the initial admin account with
+# "gatekeeper --bootstrap" (password "admin", change it afterwards)
+
+### log into the admin account
+# @name adminLoginEP
+POST {{BASE_URL}}/users/login?realm=internal
+Content-Type: application/json
+
+{
+    "clientId": "internal",
+    "name": "admin",
+    "password": "admin"
+}
+
+# CLIENT ENDPOINTS
+# ========================================
+
+### list client accounts
+GET {{BASE_URL}}/clients
+Authorization: Bearer {{adminLoginEP.response.body.accessToken}}
+
+### create a new client account
+POST {{BASE_URL}}/clients
+Authorization: Bearer {{adminLoginEP.response.body.accessToken}}
+Content-Type: application/json
+
+{
+    "clientId": "{{CLIENT}}",
+    "realm": "{{REALM}}",
+    "password": "{{PASSWORD}}"
+}
+
+### read client account
+GET {{BASE_URL}}/clients/{{CLIENT}}?realm={{REALM}}
+Authorization: Bearer {{adminLoginEP.response.body.accessToken}}
+
+### update client account with access permissions
+PATCH {{BASE_URL}}/clients/{{CLIENT}}?realm={{REALM}}
+Authorization: Bearer {{adminLoginEP.response.body.accessToken}}
+Content-Type: application/json
+
+{
+    "access": {
+        "isRoot": false,
+        "canRead": true,
+        "canWrite": true
+    }
+}
+
+### add API key
+PATCH {{BASE_URL}}/clients/{{CLIENT}}?realm={{REALM}}
+Authorization: Bearer {{adminLoginEP.response.body.accessToken}}
+Content-Type: application/json
+
+{
+    "apiKey": "my-secret-api-key"
+}
+
+### log into client account
+# @name loginEP
+POST {{BASE_URL}}/clients/login?realm={{REALM}}
+Content-Type: application/json
+
+{
+    "clientId": "{{CLIENT}}",
+    "password": "{{PASSWORD}}"
+}
+
+### authenticate and decode access token
+POST {{BASE_URL}}/clients/auth?realm={{REALM}}
+Content-Type: application/json
+
+{
+    "token": "{{loginEP.response.body.accessToken}}"
+}
+
+### authenticate with API key
+POST {{BASE_URL}}/clients/auth?realm={{REALM}}
+Content-Type: application/json
+
+{
+    "apiKey": "my-secret-api-key"
+}
+
+### refresh client authentication tokens
+# @name refreshEP
+POST {{BASE_URL}}/clients/refresh?realm={{REALM}}
+Content-Type: application/json
+
+{
+    "refreshToken": "{{loginEP.response.body.refreshToken}}"
+}
+
+### authenticate with refreshed access token
+POST {{BASE_URL}}/clients/auth?realm={{REALM}}
+Content-Type: application/json
+
+{
+    "token": "{{refreshEP.response.body.accessToken}}"
+}
+
+### logout client account
+POST {{BASE_URL}}/clients/logout?realm={{REALM}}
+Content-Type: application/json
+
+{
+    "refreshToken": "{{loginEP.response.body.refreshToken}}"
+}
+
+### delete client account
+DELETE {{BASE_URL}}/clients/{{CLIENT}}?realm={{REALM}}
+Authorization: Bearer {{adminLoginEP.response.body.accessToken}}
+
+# USER ENDPOINTS
+# ========================================
+
+### list user accounts
+GET {{BASE_URL}}/users?realm={{USER_REALM}}
+Authorization: Bearer {{adminLoginEP.response.body.accessToken}}
+
+### create a new user account
+POST {{BASE_URL}}/users
+Authorization: Bearer {{adminLoginEP.response.body.accessToken}}
+Content-Type: application/json
+
+{
+    "realm": "{{USER_REALM}}",
+    "clientId": "{{CLIENT}}",
+    "name": "{{USER_NAME}}",
+    "password": "{{PASSWORD}}"
+}
+
+### read user account
+GET {{BASE_URL}}/users/{{CLIENT}}/{{USER_NAME}}?realm={{USER_REALM}}
+Authorization: Bearer {{adminLoginEP.response.body.accessToken}}
+
+### update user account
+PATCH {{BASE_URL}}/users/{{CLIENT}}/{{USER_NAME}}?realm={{USER_REALM}}
+Authorization: Bearer {{adminLoginEP.response.body.accessToken}}
+Content-Type: application/json
+
+{
+    "otpEnabled": false,
+    "access": ["read", "write"]
+}
+
+### log into user account
+# @name userLoginEP
+POST {{BASE_URL}}/users/login?realm={{USER_REALM}}
+Content-Type: application/json
+
+{
+    "clientId": "{{CLIENT}}",
+    "name": "{{USER_NAME}}",
+    "password": "{{PASSWORD}}"
+}
+
+### authenticate and decode user account access token
+POST {{BASE_URL}}/users/auth?realm={{USER_REALM}}
+Content-Type: application/json
+
+{
+    "token": "{{userLoginEP.response.body.accessToken}}"
+}
+
+### enable OTP for the test user
+PATCH {{BASE_URL}}/users/{{CLIENT}}/{{USER_NAME}}?realm={{USER_REALM}}
+Authorization: Bearer {{adminLoginEP.response.body.accessToken}}
+Content-Type: application/json
+
+{
+    "otpSecret": "5KHOAFWDXCEQRPFJD4H2CA5IJC6TIQI6",
+    "otpEnabled": true
+}
+
+### user account OTP login
+POST {{BASE_URL}}/users/otp/login?realm={{USER_REALM}}
+Content-Type: application/json
+
+{
+    "challengeToken": "{{userLoginEP.response.body.accessToken}}",
+    "otp": "033105"
+}
+
+### refresh user authentication tokens
+# @name userRefreshEP
+POST {{BASE_URL}}/users/refresh?realm={{USER_REALM}}
+Content-Type: application/json
+
+{
+    "refreshToken": "{{userLoginEP.response.body.refreshToken}}"
+}
+
+### authenticate user with refreshed access token
+POST {{BASE_URL}}/users/auth?realm={{USER_REALM}}
+Content-Type: application/json
+
+{
+    "token": "{{userRefreshEP.response.body.accessToken}}"
+}
+
+### logout user account
+POST {{BASE_URL}}/users/logout?realm={{USER_REALM}}
+Content-Type: application/json
+
+{
+    "refreshToken": "{{userLoginEP.response.body.refreshToken}}"
+}
+
+### delete user account
+DELETE {{BASE_URL}}/users/{{CLIENT}}/{{USER_NAME}}?realm={{USER_REALM}}
+Authorization: Bearer {{adminLoginEP.response.body.accessToken}}
+
+# OTP HELPER ENDPOINTS
+# ========================================
+
+### generate an OTP secret for the test user
+# @name otpSecretEP
+GET {{BASE_URL}}/otp/secret
+
+### generate an OTP URI
+POST {{BASE_URL}}/otp/uri
+Content-Type: application/json
+
+{
+    "otpSecret": "{{otpSecretEP.response.body.otpSecret}}",
+    "name": "{{USER_NAME}}",
+    "service": "gatekeeper"
+}
+
+### generate an OTP QR code (image/svg+xml)
+POST {{BASE_URL}}/otp/qrcode
+Content-Type: application/json
+
+{
+    "otpSecret": "{{otpSecretEP.response.body.otpSecret}}",
+    "name": "{{USER_NAME}}",
+    "service": "gatekeeper"
+}

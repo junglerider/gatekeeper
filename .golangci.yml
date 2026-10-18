@@ -1,0 +1,20 @@
+version: "2"
+run:
+  # don't include test files
+  tests: false
+linters:
+  enable:
+    - gosec
+  settings:
+    errcheck:
+      exclude-functions:
+        # text & formatting (safe, unrecoverable, or standard output)
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln
+
+        # database connection & row pools (captured via .Err() or unrecoverable)
+        - (*database/sql.DB).Close
+        - (*database/sql.Rows).Close
+        - (*database/sql.DB).Close
+        - (*database/sql.Conn).Close

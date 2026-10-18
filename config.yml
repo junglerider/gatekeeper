@@ -1,0 +1,53 @@
+# gatekeeper application configuration
+#
+# environment variables are used for sensitive values
+# please see README for details on how to generate these values
+
+masterKey: ${MASTER_KEY}
+
+server:
+  port: 6501
+  logLevel: ${SERVER_LOG_LEVEL}
+  logRequests: ${SERVER_LOG_REQUESTS}
+  prettyPrint: ${SERVER_PRETTY_PRINT}
+  apiKeyCacheTTL: 600
+
+db:
+  driver: postgres
+  host: localhost
+  user: ${DB_USER}
+  password: ${DB_PASSWORD}
+  port: 5432
+  database: gatekeeper
+  timezone: Z
+  tls:
+    enabled: false
+    skipVerify: false
+    caCert: ${DB_TLS_CA_CERT}
+
+realms:
+  # the "api" realm is the default and must be present
+  api:
+    signingPrivateKey: ${API_REALM_PRV_KEY}
+    verificationPublicKey: ${API_REALM_PUB_KEY}
+    minPasswordLength: 12
+    accessTokenLifetime: 300
+    refreshTokenLifetime: 1800
+    sessionMaxLifetime: 43200
+    claims:
+      iss: https://api.com
+      aud: API Users
+
+  # the "internal" realm is used for administration and must be present
+  internal:
+    signingPrivateKey: ${INTERNAL_REALM_PRV_KEY}
+    verificationPublicKey: ${INTERNAL_REALM_PUB_KEY}
+    minPasswordLength: 12
+    accessTokenLifetime: 900
+    refreshTokenLifetime: 1800
+    sessionMaxLifetime: 43200
+    claims:
+      iss: https://internal.com
+      aud: Internal Users
+
+  # more realms can be added as needed
