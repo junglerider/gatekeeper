@@ -8,7 +8,8 @@ on:
   pull_request:
 
 jobs:
-  build:
+  test:
+    name: Run tests and static analysis
     # Skip the push event if it's a branch that has an open pull request
     # This prevents duplicate runs on feature branches
     if: |
@@ -17,23 +18,22 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v4
+    - name: Checkout repository
+      uses: actions/checkout@v4
 
-    - name: Set up Go
+    - name: Install Go
       uses: actions/setup-go@v5
       with:
         go-version: '1.27'
+        cache: true
 
     - name: Install project dependencies
       run: go get ./... && go mod tidy
 
     - name: Run tests
-      run: go test -coverprofile=coverage.out ./...
+      run: go test -race -coverprofile=coverage.out ./...
 
-    - name: Run go vet
-      run: go vet ./...
-
-    - name: golangci-lint
+    - name: Run static analysis with golangci-lint
       uses: golangci/golangci-lint-action@v7
       with:
         version: v2.14.0
