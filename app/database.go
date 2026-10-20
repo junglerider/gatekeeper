@@ -111,6 +111,7 @@ func loadRootCAs(caCertPath string) (*x509.CertPool, error) {
 		}
 		return roots, nil
 	}
+	// #nosec G304 -- loading CA certificate from a trusted path specified in the configuration
 	pem, err := os.ReadFile(caCertPath)
 	if err != nil {
 		return nil, err

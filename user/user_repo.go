@@ -158,6 +158,7 @@ func (r *Repo) UpdateUser(u *UserPK, props map[string]any) (int64, error) {
 	}
 	query, params := buildUserUpdateQuery(r.tableName("users"), r.currentTimestamp(), u, props)
 	log.Trace().Interface("user", u).Str("sql", query).Msg("updating user")
+	// #nosec G701 - dynamic query with static parts and correctly bound data parameters
 	result, err := r.db.Exec(r.db.Rebind(query), params...)
 	if err != nil {
 		return 0, err
