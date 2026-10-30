@@ -33,30 +33,57 @@ type SchemaCreator interface {
 	EnsureSchema() error
 }
 
-// executes SQL statements, satisfied by *sql.DB and *sqlx.DB
-type Execer interface {
+// executes SQL statements and queries, satisfied by *sql.DB and *sqlx.DB
+type SchemaDB interface {
 	Exec(query string, args ...any) (sql.Result, error)
+	Query(query string, args ...any) (*sql.Rows, error)
 }
 
 // creates the client and user tables if they do not exist yet
 type Schema struct {
-	DB     Execer
+	DB     SchemaDB
 	Driver string
 }
 
 func (s Schema) EnsureSchema() error {
-	var tables map[string]string
+	type tableDefinition struct {
+		name        string
+		ddl         string
+		existsQuery string
+	}
+	var tables []tableDefinition
 	switch s.Driver {
 	case "", "mysql":
-		tables = map[string]string{"clients": datamodel.ClientsSQL, "users": datamodel.UsersSQL}
+		tables = []tableDefinition{
+			{"clients", datamodel.ClientsSQL, "SHOW TABLES LIKE ?"},
+			{"users", datamodel.UsersSQL, "SHOW TABLES LIKE ?"},
+		}
 	case "postgres":
-		tables = map[string]string{"clients": datamodel.PostgresClientsSQL, "users": datamodel.PostgresUsersSQL}
+		tables = []tableDefinition{
+			{"clients", datamodel.PostgresClientsSQL, "SELECT 1 WHERE to_regclass($1) IS NOT NULL"},
+			{"users", datamodel.PostgresUsersSQL, "SELECT 1 WHERE to_regclass($1) IS NOT NULL"},
+		}
 	default:
 		return fmt.Errorf("unsupported database driver %q", s.Driver)
 	}
-	for name, ddl := range tables {
-		if _, err := s.DB.Exec(ddl); err != nil {
-			return fmt.Errorf("create %s table: %w", name, err)
+	for _, table := range tables {
+		rows, err := s.DB.Query(table.existsQuery, table.name)
+		if err != nil {
+			return fmt.Errorf("check if %s table exists: %w", table.name, err)
+		}
+		exists := rows.Next()
+		if err := rows.Err(); err != nil {
+			_ = rows.Close()
+			return fmt.Errorf("check if %s table exists: %w", table.name, err)
+		}
+		if err := rows.Close(); err != nil {
+			return fmt.Errorf("check if %s table exists: %w", table.name, err)
+		}
+		if exists {
+			continue
+		}
+		if _, err := s.DB.Exec(table.ddl); err != nil {
+			return fmt.Errorf("create %s table: %w", table.name, err)
 		}
 	}
 	fmt.Printf("created or ensured users and clients database tables\n")

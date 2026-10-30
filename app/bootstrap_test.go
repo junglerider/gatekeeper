@@ -2,30 +2,19 @@ package app
 
 import (
 	"bytes"
-	"database/sql"
 	"errors"
-	"strings"
+	"regexp"
 	"testing"
 
+	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"junglerider/gatekeeper/datamodel"
 )
 
 type fakeSchema struct{ err error }
 
 func (f fakeSchema) EnsureSchema() error { return f.err }
-
-type fakeExecer struct {
-	queries []string
-	failOn  string
-}
-
-func (f *fakeExecer) Exec(query string, args ...any) (sql.Result, error) {
-	f.queries = append(f.queries, query)
-	if f.failOn != "" && strings.Contains(query, f.failOn) {
-		return nil, errors.New("exec failed")
-	}
-	return nil, nil
-}
 
 type fakeStore struct {
 	exists    bool
@@ -128,25 +117,68 @@ func TestBootstrap_SchemaError(t *testing.T) {
 }
 
 func TestSchema_EnsureSchema(t *testing.T) {
-	db := &fakeExecer{}
-	assert.NoError(t, Schema{DB: db}.EnsureSchema())
-	assert.Len(t, db.queries, 2)
-	for _, q := range db.queries {
-		assert.Contains(t, q, "CREATE TABLE IF NOT EXISTS")
-	}
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close()
 
-	err := Schema{DB: &fakeExecer{failOn: "users"}}.EnsureSchema()
-	assert.ErrorContains(t, err, "exec failed")
+	mock.ExpectQuery(regexp.QuoteMeta("SHOW TABLES LIKE ?")).
+		WithArgs("clients").
+		WillReturnRows(sqlmock.NewRows([]string{"Tables_in_test"}).AddRow("clients"))
+	mock.ExpectQuery(regexp.QuoteMeta("SHOW TABLES LIKE ?")).
+		WithArgs("users").
+		WillReturnRows(sqlmock.NewRows([]string{"Tables_in_test"}).AddRow("users"))
+
+	assert.NoError(t, Schema{DB: db}.EnsureSchema())
+	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
-// TestSchema_EnsurePostgresSchema checks that bootstrap selects PostgreSQL DDL.
+func TestSchema_CreatesMissingTable(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close()
+
+	mock.ExpectQuery(regexp.QuoteMeta("SHOW TABLES LIKE ?")).
+		WithArgs("clients").
+		WillReturnRows(sqlmock.NewRows([]string{"Tables_in_test"}).AddRow("clients"))
+	mock.ExpectQuery(regexp.QuoteMeta("SHOW TABLES LIKE ?")).
+		WithArgs("users").
+		WillReturnRows(sqlmock.NewRows([]string{"Tables_in_test"}))
+	mock.ExpectExec(regexp.QuoteMeta(datamodel.UsersSQL)).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+
+	assert.NoError(t, Schema{DB: db}.EnsureSchema())
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
 func TestSchema_EnsurePostgresSchema(t *testing.T) {
-	db := &fakeExecer{}
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close()
+
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT 1 WHERE to_regclass($1) IS NOT NULL")).
+		WithArgs("clients").
+		WillReturnRows(sqlmock.NewRows([]string{"?column?"}).AddRow(1))
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT 1 WHERE to_regclass($1) IS NOT NULL")).
+		WithArgs("users").
+		WillReturnRows(sqlmock.NewRows([]string{"?column?"}))
+	mock.ExpectExec(regexp.QuoteMeta(datamodel.PostgresUsersSQL)).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+
 	assert.NoError(t, (Schema{DB: db, Driver: "postgres"}).EnsureSchema())
-	assert.Len(t, db.queries, 2)
-	for _, query := range db.queries {
-		assert.Contains(t, query, "CREATE TABLE IF NOT EXISTS")
-		assert.NotContains(t, query, "ENGINE=InnoDB")
-		assert.NotContains(t, query, "TINYINT")
-	}
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestSchema_ExistenceCheckError(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close()
+
+	mock.ExpectQuery(regexp.QuoteMeta("SHOW TABLES LIKE ?")).
+		WithArgs("clients").
+		WillReturnError(errors.New("lookup failed"))
+
+	err = Schema{DB: db}.EnsureSchema()
+	assert.ErrorContains(t, err, "check if clients table exists")
+	assert.ErrorContains(t, err, "lookup failed")
+	assert.NoError(t, mock.ExpectationsWereMet())
 }
