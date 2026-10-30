@@ -16,6 +16,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
 
@@ -29,6 +30,13 @@ func NewController(repo UserRepo, config *app.Config) *Controller {
 		&app.BaseController{Config: config},
 		repo,
 	}
+}
+
+func tokenAuthFailureEvent(err error) *zerolog.Event {
+	if auth.IsVerificationKeyError(err) {
+		return log.Error().Err(err)
+	}
+	return log.Info().Err(err)
 }
 
 // registers all user routes
@@ -298,17 +306,36 @@ func (c *Controller) loginHandler(w http.ResponseWriter, r *http.Request) {
 		)
 	}
 	if err != nil {
+		log.Info().Err(err).
+			Str("realm", user.Realm).
+			Str("client_id", user.ClientID).
+			Str("user_name", user.Name).
+			Msg("login rejected")
 		c.StatusReply(w, 400, err.Error())
 		return
 	}
 	tokenPair, err = c.repo.LoginUser(&user, c.Config)
 	if err != nil {
-		log.Error().Err(err).Msg("login failed")
 		if errors.Is(err, errPasswordExpired) {
+			log.Info().Err(err).
+				Str("realm", user.Realm).
+				Str("client_id", user.ClientID).
+				Str("user_name", user.Name).
+				Msg("login rejected")
 			c.StatusReply(w, 401, errPasswordExpired.Error())
-		} else if errors.Is(err, errCredentialsDenied) || strings.Contains(err.Error(), "access denied") {
+		} else if errors.Is(err, errCredentialsDenied) {
+			log.Info().Err(err).
+				Str("realm", user.Realm).
+				Str("client_id", user.ClientID).
+				Str("user_name", user.Name).
+				Msg("login rejected")
 			c.StatusReply(w, 401, "credentials not recognised")
 		} else {
+			log.Error().Err(err).
+				Str("realm", user.Realm).
+				Str("client_id", user.ClientID).
+				Str("user_name", user.Name).
+				Msg("login failed")
 			c.StatusReply(w, 500)
 		}
 		return
@@ -325,12 +352,13 @@ func (c *Controller) authHandler(w http.ResponseWriter, r *http.Request) {
 		err = c.ValidateRealm(realm)
 	}
 	if err != nil {
+		log.Info().Err(err).Str("realm", realm).Str("client_id", "").Str("user_name", "").Msg("authentication request rejected")
 		c.StatusReply(w, 400, err.Error())
 		return
 	}
 	var claims jwt.MapClaims
 	if creds.AccessToken == "" {
-		log.Debug().Msg("no token provided")
+		log.Info().Str("realm", realm).Str("client_id", "").Str("user_name", "").Msg("authentication token missing")
 		c.StatusReply(w, 400, "token is required for authentication")
 		return
 	} else {
@@ -344,7 +372,12 @@ func (c *Controller) authHandler(w http.ResponseWriter, r *http.Request) {
 			expectedClaims["aud"] = value
 		}
 		if claims, err = auth.VerifyToken(creds.AccessToken, realmConfig.VerificationPublicKey, expectedClaims); err != nil {
-			log.Debug().Err(err).Msg("invalid JWT access token")
+			clientID, userName := auth.UnverifiedTokenIdentity(creds.AccessToken)
+			tokenAuthFailureEvent(err).
+				Str("realm", realm).
+				Str("client_id", clientID).
+				Str("user_name", userName).
+				Msg("access token authentication failed")
 			c.StatusReply(w, 401, "invalid or expired access token")
 			return
 		}
@@ -364,6 +397,7 @@ func (c *Controller) refreshHandler(w http.ResponseWriter, r *http.Request) {
 		err = errors.New("refresh token is required")
 	}
 	if err != nil {
+		log.Info().Err(err).Str("realm", realm).Str("client_id", "").Str("user_name", "").Msg("refresh token missing")
 		c.StatusReply(w, 400, err.Error())
 		return
 	}
@@ -378,16 +412,39 @@ func (c *Controller) refreshHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	var claims jwt.MapClaims
 	if claims, err = auth.VerifyToken(tok.RefreshToken, realmConfig.VerificationPublicKey, expectedClaims); err != nil {
-		log.Debug().Err(err).Msg("invalid JWT refresh token")
+		clientID, userName := auth.UnverifiedTokenIdentity(tok.RefreshToken)
+		tokenAuthFailureEvent(err).
+			Str("realm", realm).
+			Str("client_id", clientID).
+			Str("user_name", userName).
+			Msg("refresh token authentication failed")
 		c.StatusReply(w, 401, "invalid refresh token")
 		return
 	}
 	tokenPair, err := c.repo.RefreshToken(claims, realm, c.Config)
 	if err != nil {
-		log.Error().Err(err).Msg("failed to refresh token")
+		clientID, _ := claims["client_id"].(string)
+		userName, _ := claims["sub"].(string)
+		authFailure := errors.Is(err, errPasswordExpired) || errors.Is(err, sql.ErrNoRows) ||
+			errors.Is(err, errRefreshDenied) || errors.Is(err, errRefreshTokenReuse)
+		if authFailure {
+			log.Info().Err(err).
+				Str("realm", realm).
+				Str("client_id", clientID).
+				Str("user_name", userName).
+				Msg("refresh token authentication failed")
+		} else {
+			log.Error().Err(err).
+				Str("realm", realm).
+				Str("client_id", clientID).
+				Str("user_name", userName).
+				Msg("failed to refresh token")
+		}
 		switch {
-		case strings.Contains(err.Error(), "refresh token cannot be reused"), strings.Contains(err.Error(), "token cannot be reused"):
+		case errors.Is(err, errRefreshTokenReuse):
 			c.StatusReply(w, 401, "refresh token cannot be reused")
+		case errors.Is(err, errRefreshDenied):
+			c.StatusReply(w, 401, "refresh token claims invalid")
 		case strings.Contains(err.Error(), "access denied"):
 			c.StatusReply(w, 401, "refresh token claims invalid")
 		default:
@@ -410,6 +467,7 @@ func (c *Controller) logoutHandler(w http.ResponseWriter, r *http.Request) {
 		err = errors.New("refresh token is required")
 	}
 	if err != nil {
+		log.Info().Err(err).Str("realm", realm).Str("client_id", "").Str("user_name", "").Msg("logout token missing")
 		c.StatusReply(w, 400, err.Error())
 		return
 	}
@@ -424,13 +482,27 @@ func (c *Controller) logoutHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	var claims jwt.MapClaims
 	if claims, err = auth.VerifyToken(tok.RefreshToken, realmConfig.VerificationPublicKey, expectedClaims); err != nil {
-		log.Debug().Err(err).Msg("invalid JWT refresh token")
+		clientID, userName := auth.UnverifiedTokenIdentity(tok.RefreshToken)
+		tokenAuthFailureEvent(err).
+			Str("realm", realm).
+			Str("client_id", clientID).
+			Str("user_name", userName).
+			Msg("logout token authentication failed")
 		c.StatusReply(w, 401, "invalid refresh token")
 		return
 	}
 	err = c.repo.LogoutUser(claims, realm)
 	if err != nil {
-		log.Error().Err(err).Msg("failed to logout")
+		clientID, _ := claims["client_id"].(string)
+		userName, _ := claims["sub"].(string)
+		event := log.Error().Err(err)
+		if strings.Contains(err.Error(), "user not found") || strings.Contains(err.Error(), "claim is not valid") {
+			event = log.Info().Err(err)
+		}
+		event.Str("realm", realm).
+			Str("client_id", clientID).
+			Str("user_name", userName).
+			Msg("user logout failed")
 		c.StatusReply(w, 500)
 	} else {
 		c.StatusReply(w, 200, "OK")
@@ -450,13 +522,24 @@ func (c *Controller) otpLoginHandler(w http.ResponseWriter, r *http.Request) {
 		)
 	}
 	if err != nil {
+		clientID, userName := auth.UnverifiedTokenIdentity(login.ChallengeToken)
+		log.Info().Err(err).
+			Str("realm", realm).
+			Str("client_id", clientID).
+			Str("user_name", userName).
+			Msg("OTP login rejected")
 		c.StatusReply(w, 400, err.Error())
 		return
 	}
 	realmConfig := c.Config.Realms[realm]
 	claims, err := auth.VerifyChallengeToken(login.ChallengeToken, realmConfig.VerificationPublicKey, realm)
 	if err != nil {
-		log.Debug().Err(err).Msg("invalid OTP challenge token")
+		clientID, userName := auth.UnverifiedTokenIdentity(login.ChallengeToken)
+		tokenAuthFailureEvent(err).
+			Str("realm", realm).
+			Str("client_id", clientID).
+			Str("user_name", userName).
+			Msg("OTP challenge authentication failed")
 		c.StatusReply(w, 401, "invalid or expired challenge token")
 		return
 	}
@@ -464,10 +547,19 @@ func (c *Controller) otpLoginHandler(w http.ResponseWriter, r *http.Request) {
 	login.Name = claims["sub"].(string)
 	tokenPair, err := c.repo.OTPLogin(realm, login, c.Config)
 	if err != nil {
-		log.Error().Err(err).Msg("otp login failed")
 		if errors.Is(err, errOTPDenied) || errors.Is(err, errPasswordExpired) {
+			log.Info().Err(err).
+				Str("realm", realm).
+				Str("client_id", login.ClientID).
+				Str("user_name", login.Name).
+				Msg("OTP login rejected")
 			c.StatusReply(w, 401, "invalid challenge or OTP")
 		} else {
+			log.Error().Err(err).
+				Str("realm", realm).
+				Str("client_id", login.ClientID).
+				Str("user_name", login.Name).
+				Msg("OTP login failed")
 			c.StatusReply(w, 500)
 		}
 		return

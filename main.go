@@ -45,7 +45,7 @@ func main() {
 		user.NewController(userRepo, container.Config),
 		auth.NewController(container.Config),
 	}
-	container.Protect = middleware.Authorizer(auth.VerifyAccess(container.Config))
+	container.Protect = middleware.Authorizer(auth.VerifyAccess(container.Config), app.BootstrapRealm)
 	handler := app.RegisterRoutes(container)
 	app.Start(handler, container.Config)
 	if err := container.DB.Close(); err != nil {

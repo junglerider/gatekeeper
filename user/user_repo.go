@@ -22,6 +22,8 @@ import (
 var errPasswordExpired = errors.New("password expired")
 var errOTPDenied = errors.New("OTP verification failed")
 var errCredentialsDenied = errors.New("access denied")
+var errRefreshDenied = errors.New("access denied")
+var errRefreshTokenReuse = errors.New("access denied - refresh token cannot be reused")
 
 // user repository interface
 type UserRepo interface {
@@ -334,7 +336,12 @@ func (r *Repo) DeleteUser(u *UserPK) (int64, error) {
 // performs a user login with credentials and returns a pair of JSON web tokens
 func (r *Repo) LoginUser(login *User, config *app.Config) (*auth.TokenPair, error) {
 	query := fmt.Sprintf("SELECT * FROM %s WHERE client_id = ? AND realm = ? AND name = ? AND is_active = true", r.tableName("users"))
-	log.Trace().Interface("user", login).Str("sql", query).Msg("looking up user")
+	log.Trace().
+		Str("realm", login.Realm).
+		Str("client_id", login.ClientID).
+		Str("user_name", login.Name).
+		Str("sql", query).
+		Msg("looking up user")
 	var user User
 	err := r.db.Get(&user, r.db.Rebind(query), login.ClientID, login.Realm, login.Name)
 	if err != nil {
@@ -387,14 +394,14 @@ func (r *Repo) RefreshToken(claims jwt.MapClaims, realm string, config *app.Conf
 	var clientID, name string
 	var ok bool
 	if clientID, ok = claims["client_id"].(string); !ok {
-		return nil, errors.New("access denied - client_id claim is not valid")
+		return nil, fmt.Errorf("%w - client_id claim is not valid", errRefreshDenied)
 	}
 	if name, ok = claims["sub"].(string); !ok {
-		return nil, errors.New("access denied - sub claim is not valid")
+		return nil, fmt.Errorf("%w - sub claim is not valid", errRefreshDenied)
 	}
 	jti, ok := claims["jti"].(string)
 	if !ok || jti == "" {
-		return nil, errors.New("access denied - jti claim is not valid")
+		return nil, fmt.Errorf("%w - jti claim is not valid", errRefreshDenied)
 	}
 	query := fmt.Sprintf("SELECT * from %s WHERE client_id = ? AND realm = ? AND name = ?", r.tableName("users"))
 	var user User
@@ -403,7 +410,7 @@ func (r *Repo) RefreshToken(claims jwt.MapClaims, realm string, config *app.Conf
 		return nil, err
 	}
 	if user.IsActive != nil && !*user.IsActive {
-		return nil, errors.New("access denied - user is not active")
+		return nil, fmt.Errorf("%w - user is not active", errRefreshDenied)
 	}
 	if user.PwdExpiry != nil && user.PwdExpiry.Before(time.Now()) {
 		return nil, errPasswordExpired
@@ -412,12 +419,12 @@ func (r *Repo) RefreshToken(claims jwt.MapClaims, realm string, config *app.Conf
 		return nil, err
 	}
 	if iat, ok := claims["iat"].(float64); !ok {
-		return nil, errors.New("issued at claim is not valid")
+		return nil, fmt.Errorf("%w - issued at claim is not valid", errRefreshDenied)
 	} else if user.LastRefresh == nil || int64(iat) != *user.LastRefresh {
-		return nil, errors.New("access denied - token cannot be reused")
+		return nil, fmt.Errorf("%w - token cannot be reused", errRefreshDenied)
 	}
 	if user.JTIRefresh == nil || *user.JTIRefresh != jti {
-		return nil, errors.New("access denied - refresh token cannot be reused")
+		return nil, errRefreshTokenReuse
 	}
 	overrideClaims := make(map[string]any, 2)
 	overrideClaims["sid"] = claims["sid"]
@@ -448,10 +455,13 @@ func (r *Repo) LogoutUser(claims jwt.MapClaims, realm string) error {
 	result, err := r.db.Exec(r.db.Rebind(query), clientID, realm, name)
 	if err != nil {
 		return err
-	} else {
-		if updatedRows, _ := result.RowsAffected(); updatedRows == 0 {
-			return errors.New("user not found")
-		}
+	}
+	updatedRows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if updatedRows == 0 {
+		return errors.New("user not found")
 	}
 	return nil
 }
@@ -467,11 +477,14 @@ func (r *Repo) OTPLogin(realm string, login OTPLogin, config *app.Config) (*auth
 		}
 		return nil, err
 	}
-	if user.OTPEnabled == nil || !*user.OTPEnabled || user.OTPSecret == nil {
+	if user.OTPEnabled == nil || !*user.OTPEnabled {
 		return nil, errOTPDenied
 	}
+	if user.OTPSecret == nil {
+		return nil, errors.New("OTP secret is missing")
+	}
 	if user.EncKey == nil {
-		return nil, errOTPDenied
+		return nil, errors.New("OTP encryption key is missing")
 	}
 	if user.PwdExpiry != nil && user.PwdExpiry.Before(time.Now()) {
 		return nil, errPasswordExpired
@@ -479,12 +492,12 @@ func (r *Repo) OTPLogin(realm string, login OTPLogin, config *app.Config) (*auth
 	owner := auth.OwnerContext("user", realm, login.ClientID, login.Name)
 	dataKey, err := auth.UnwrapDataKey(*user.EncKey, r.masterKey, owner)
 	if err != nil {
-		return nil, errOTPDenied
+		return nil, err
 	}
 	defer clear(dataKey)
 	secret, err := auth.DecryptOTPSecret(*user.OTPSecret, dataKey, owner)
 	if err != nil {
-		return nil, errOTPDenied
+		return nil, err
 	}
 	if !auth.VerifyOTP(login.OTP, secret) {
 		return nil, errOTPDenied

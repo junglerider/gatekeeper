@@ -11,6 +11,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"junglerider/gatekeeper/app"
@@ -285,6 +286,27 @@ func VerifyToken(tokenString string, publicKey string, expectedClaims map[string
 		}
 	}
 	return claims, nil
+}
+
+// UnverifiedTokenIdentity extracts token identity claims for logging rejected requests only.
+func UnverifiedTokenIdentity(tokenString string) (clientID, userName string) {
+	token, _, err := new(jwt.Parser).ParseUnverified(tokenString, jwt.MapClaims{})
+	if err != nil {
+		return "", ""
+	}
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok {
+		return "", ""
+	}
+	clientID, _ = claims["client_id"].(string)
+	userName, _ = claims["sub"].(string)
+	return clientID, userName
+}
+
+// IsVerificationKeyError reports errors caused by invalid server-side JWT key configuration.
+func IsVerificationKeyError(err error) bool {
+	return err != nil && (strings.HasPrefix(err.Error(), "decode JWT verification key") ||
+		strings.HasPrefix(err.Error(), "JWT verification key must encode"))
 }
 
 func parseToken(tokenString string, publicKey string) (*jwt.Token, error) {

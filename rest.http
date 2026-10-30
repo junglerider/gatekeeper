@@ -10,10 +10,10 @@
 # INTERNAL
 # ========================================
 
-### liveness and readiness checks
+### liveness check
 GET {{BASE_URL}}/livez
 
-###
+### readiness check
 GET {{BASE_URL}}/readyz
 
 # ADMIN LOGIN

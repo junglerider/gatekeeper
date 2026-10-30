@@ -1,11 +1,15 @@
 package middleware
 
 import (
+	"bytes"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
+	"github.com/golang-jwt/jwt/v5"
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -89,4 +93,27 @@ func TestAuthorizer(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestAuthorizerLogsRejectedTokenIdentity(t *testing.T) {
+	var logOutput bytes.Buffer
+	oldLogger := log.Logger
+	log.Logger = zerolog.New(&logOutput)
+	defer func() { log.Logger = oldLogger }()
+
+	token, err := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"client_id": "client1",
+		"sub":       "admin",
+	}).SignedString([]byte("test-secret"))
+	assert.NoError(t, err)
+
+	handler := Authorizer(stubVerifier, "internal")(http.NotFoundHandler())
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	handler.ServeHTTP(httptest.NewRecorder(), req)
+
+	assert.Contains(t, logOutput.String(), `"level":"info"`)
+	assert.Contains(t, logOutput.String(), `"realm":"internal"`)
+	assert.Contains(t, logOutput.String(), `"client_id":"client1"`)
+	assert.Contains(t, logOutput.String(), `"user_name":"admin"`)
 }

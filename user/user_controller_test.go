@@ -18,6 +18,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 )
 
 type mockUserRepo struct {
@@ -712,8 +714,13 @@ func TestLoginHandler(t *testing.T) {
 	})
 
 	t.Run("AccessDenied", func(t *testing.T) {
+		var logOutput bytes.Buffer
+		oldLogger := log.Logger
+		log.Logger = zerolog.New(&logOutput)
+		defer func() { log.Logger = oldLogger }()
+
 		mock.loginUserFunc = func(login *User, config *app.Config) (*auth.TokenPair, error) {
-			return nil, errors.New("access denied")
+			return nil, errCredentialsDenied
 		}
 		user := User{ClientID: "client1", Name: "user1", Password: PtrFacade("password123")}
 		body, _ := json.Marshal(user)
@@ -723,6 +730,12 @@ func TestLoginHandler(t *testing.T) {
 		c.loginHandler(w, req)
 		if w.Code != 401 {
 			t.Errorf("expected status 401, got %d", w.Code)
+		}
+		if !strings.Contains(logOutput.String(), `"level":"info"`) ||
+			!strings.Contains(logOutput.String(), `"realm":"test"`) ||
+			!strings.Contains(logOutput.String(), `"client_id":"client1"`) ||
+			!strings.Contains(logOutput.String(), `"user_name":"user1"`) {
+			t.Errorf("expected info log with account identity, got %s", logOutput.String())
 		}
 	})
 
@@ -927,7 +940,7 @@ func TestRefreshHandler(t *testing.T) {
 		tok := auth.TokenPair{RefreshToken: signed}
 		body, _ := json.Marshal(tok)
 		mock.refreshTokenFunc = func(claims jwt.MapClaims, realm string, config *app.Config) (*auth.TokenPair, error) {
-			return nil, errors.New("access denied")
+			return nil, errRefreshDenied
 		}
 		req := httptest.NewRequest("POST", "/users/refresh?realm=test", bytes.NewReader(body))
 		req = addChiParams(req, map[string]string{"realm": "test"})
@@ -942,7 +955,7 @@ func TestRefreshHandler(t *testing.T) {
 		tokenPair := setupTokenPair(t)
 		body, _ := json.Marshal(tokenPair)
 		mock.refreshTokenFunc = func(claims jwt.MapClaims, realm string, config *app.Config) (*auth.TokenPair, error) {
-			return nil, errors.New("access denied - refresh token cannot be reused")
+			return nil, errRefreshTokenReuse
 		}
 		req := httptest.NewRequest("POST", "/users/refresh?realm=test", bytes.NewReader(body))
 		req = addChiParams(req, map[string]string{"realm": "test"})

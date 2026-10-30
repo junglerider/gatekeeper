@@ -15,6 +15,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 )
@@ -493,8 +495,13 @@ func TestLoginHandler(t *testing.T) {
 	})
 
 	t.Run("Invalid credentials", func(t *testing.T) {
+		var logOutput bytes.Buffer
+		oldLogger := log.Logger
+		log.Logger = zerolog.New(&logOutput)
+		defer func() { log.Logger = oldLogger }()
+
 		controller, mockRepo, config := setupTestController(t)
-		mockRepo.On("LoginClient", &client, config).Return((*auth.TokenPair)(nil), errors.New("access denied")).Once()
+		mockRepo.On("LoginClient", &client, config).Return((*auth.TokenPair)(nil), errClientCredentialsDenied).Once()
 
 		body, _ := json.Marshal(client)
 		req, _ := http.NewRequest("POST", "/clients/login?realm=test-realm", bytes.NewBuffer(body))
@@ -505,6 +512,10 @@ func TestLoginHandler(t *testing.T) {
 
 		assert.Equal(t, 401, rr.Code)
 		assert.Contains(t, rr.Body.String(), `"credentials not recognised"`)
+		assert.Contains(t, logOutput.String(), `"level":"info"`)
+		assert.Contains(t, logOutput.String(), `"realm":"test-realm"`)
+		assert.Contains(t, logOutput.String(), `"client_id":"client1"`)
+		assert.NotContains(t, logOutput.String(), "password123")
 	})
 
 	t.Run("Expired password", func(t *testing.T) {
@@ -569,7 +580,7 @@ func TestAuthHandler(t *testing.T) {
 
 	t.Run("Invalid API key", func(t *testing.T) {
 		controller, mockRepo, config := setupTestController(t)
-		mockRepo.On("VerifyAPIKey", creds.ApiKey, "test-realm", config).Return((map[string]any)(nil), errors.New("invalid key")).Once()
+		mockRepo.On("VerifyAPIKey", creds.ApiKey, "test-realm", config).Return((map[string]any)(nil), errInvalidAPIKey).Once()
 
 		body, _ := json.Marshal(creds)
 		req, _ := http.NewRequest("POST", "/clients/auth?realm=test-realm", bytes.NewBuffer(body))
@@ -673,7 +684,7 @@ func TestRefreshHandler(t *testing.T) {
 
 	t.Run("Refresh token reuse", func(t *testing.T) {
 		controller, mockRepo, config := setupTestController(t)
-		mockRepo.On("RefreshToken", mock.Anything, "test-realm", config).Return((*auth.TokenPair)(nil), errors.New("access denied - refresh token cannot be reused")).Once()
+		mockRepo.On("RefreshToken", mock.Anything, "test-realm", config).Return((*auth.TokenPair)(nil), errClientRefreshTokenReuse).Once()
 
 		body, _ := json.Marshal(*tokenPair)
 		req, _ := http.NewRequest("POST", "/clients/refresh?realm=test-realm", bytes.NewBuffer(body))

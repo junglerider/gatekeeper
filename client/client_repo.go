@@ -19,6 +19,9 @@ import (
 )
 
 var errPasswordExpired = errors.New("password expired")
+var errInvalidAPIKey = errors.New("invalid or expired API key")
+var errClientCredentialsDenied = errors.New("access denied")
+var errClientRefreshTokenReuse = errors.New("access denied - refresh token cannot be reused")
 
 const apiKeyCacheMaxSize = 1000
 
@@ -273,15 +276,15 @@ func (r *Repo) LoginClient(login *Client, config *app.Config) (*auth.TokenPair, 
 	err := row.StructScan(&client)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			err = errors.New("access denied")
+			err = errClientCredentialsDenied
 		}
 		return nil, err
 	}
 	if client.IsActive != nil && !*client.IsActive {
-		return nil, errors.New("access denied")
+		return nil, errClientCredentialsDenied
 	}
 	if !auth.VerifyPassword(client.Password, login.Password) {
-		return nil, errors.New("access denied")
+		return nil, errClientCredentialsDenied
 	}
 	if client.PwdExpiry != nil && client.PwdExpiry.Before(time.Now()) {
 		return nil, errPasswordExpired
@@ -332,10 +335,13 @@ func (r *Repo) VerifyAPIKey(apiKey string, realm string, config *app.Config) (ma
 	var active sql.NullBool
 	err := row.Scan(&clientId, &storedAccess, &encKey, &active)
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, errInvalidAPIKey
+		}
 		return nil, err
 	}
 	if active.Valid && !active.Bool {
-		return nil, errors.New("client is inactive")
+		return nil, errInvalidAPIKey
 	}
 	client := Client{ClientID: clientId, Realm: realm}
 	if storedAccess.Valid {
@@ -380,13 +386,13 @@ func (r *Repo) RefreshToken(claims jwt.MapClaims, realm string, config *app.Conf
 		return nil, err
 	}
 	if client.IsActive != nil && !*client.IsActive {
-		return nil, errors.New("access denied")
+		return nil, errClientCredentialsDenied
 	}
 	if client.PwdExpiry != nil && client.PwdExpiry.Before(time.Now()) {
 		return nil, errPasswordExpired
 	}
 	if client.JTIRefresh == nil || *client.JTIRefresh != jti {
-		return nil, errors.New("access denied - refresh token cannot be reused")
+		return nil, errClientRefreshTokenReuse
 	}
 	if err = r.decryptAccess(&client); err != nil {
 		return nil, err

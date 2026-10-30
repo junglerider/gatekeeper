@@ -873,8 +873,8 @@ func TestRefreshToken(t *testing.T) {
 			WillReturnRows(rows)
 
 		tp, err := repo.RefreshToken(claims, realm, config)
-		if err == nil || err.Error() != "issued at claim is not valid" {
-			t.Errorf("expected iat error, got %v", err)
+		if err == nil || err.Error() != "access denied - issued at claim is not valid" {
+			t.Errorf("expected invalid refresh token error, got %v", err)
 		}
 		if tp != nil {
 			t.Errorf("expected nil token pair, got %v", tp)
@@ -1141,8 +1141,8 @@ func TestOTPLogin(t *testing.T) {
 			WillReturnRows(rows)
 
 		tokenPair, err := repo.OTPLogin(realm, login, config)
-		if !errors.Is(err, errOTPDenied) {
-			t.Errorf("expected OTP denied error, got %v", err)
+		if err == nil || errors.Is(err, errOTPDenied) {
+			t.Errorf("expected internal OTP configuration error, got %v", err)
 		}
 		if tokenPair != nil {
 			t.Errorf("expected no token pair, got %v", tokenPair)
