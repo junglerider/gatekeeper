@@ -210,6 +210,7 @@ func TestConfigValidate_DatabaseOptions(t *testing.T) {
 	require.NotContains(t, cfg.validate().Error(), "db.driver must be either mysql or postgres")
 
 	cfg.DB.TLS.Enabled = false
+	cfg.DB.TLS.CACert = ""
 	cfg.DB.TLS.SkipVerify = true
-	require.ErrorContains(t, cfg.validate(), "db.tls.skipVerify requires db.tls.enabled")
+	require.NotContains(t, cfg.validate().Error(), "db.tls.skipVerify requires db.tls.enabled")
 }

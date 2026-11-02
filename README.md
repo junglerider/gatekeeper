@@ -139,7 +139,7 @@ Application configuration is provided in the `config.yml` file. The secrets in t
 
 Set `db.driver` to `mysql` or `postgres`. If omitted, it defaults to `mysql`. The `db.database` value names the database to connect to; PostgreSQL tables are created in the connection's default schema (normally `public`).
 
-Database TLS is disabled by default. To enable TLS, set `db.tls.enabled: true`. The server certificate is verified against system roots unless `db.tls.caCert` names a PEM CA certificate file. PostgreSQL connections use `verify-full`, including hostname verification. `db.tls.skipVerify` defaults to `false`; setting it to `true` keeps TLS encryption but skips server certificate verification for both database drivers. This makes the connection vulnerable to man-in-the-middle attacks and should only be used when that risk is explicitly acceptable. `skipVerify` requires `enabled: true`; when enabled, `caCert` is not used.
+Database TLS is disabled by default. To enable TLS, set `db.tls.enabled: true`. The server certificate is verified against system roots unless `db.tls.caCert` names a PEM CA certificate file. PostgreSQL connections use `verify-full`, including hostname verification. `db.tls.skipVerify` defaults to `false`; when TLS is enabled, setting it to `true` keeps TLS encryption but skips server certificate verification for both database drivers. This makes the connection vulnerable to man-in-the-middle attacks and should only be used when that risk is explicitly acceptable. When TLS is disabled, `skipVerify` has no effect. When enabled, `caCert` is not used.
 
 For PostgreSQL, change the driver and port, and optionally provide a CA certificate:
 

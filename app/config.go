@@ -95,9 +95,6 @@ func (config *Config) validate() error {
 	if strings.TrimSpace(config.DB.TLS.CACert) != "" && !config.DB.TLS.Enabled {
 		validationErrors = append(validationErrors, errors.New("db.tls.caCert requires db.tls.enabled"))
 	}
-	if config.DB.TLS.SkipVerify && !config.DB.TLS.Enabled {
-		validationErrors = append(validationErrors, errors.New("db.tls.skipVerify requires db.tls.enabled"))
-	}
 	if config.Server.ApiKeyCacheTTL <= 0 {
 		validationErrors = append(validationErrors, errors.New("server.apiKeyCacheTTL must be a positive integer"))
 	}
