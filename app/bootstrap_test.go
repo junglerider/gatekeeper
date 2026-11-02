@@ -121,11 +121,9 @@ func TestSchema_EnsureSchema(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close()
 
-	mock.ExpectQuery(regexp.QuoteMeta("SHOW TABLES LIKE ?")).
-		WithArgs("clients").
+	mock.ExpectQuery(regexp.QuoteMeta("SHOW TABLES LIKE 'clients'")).
 		WillReturnRows(sqlmock.NewRows([]string{"Tables_in_test"}).AddRow("clients"))
-	mock.ExpectQuery(regexp.QuoteMeta("SHOW TABLES LIKE ?")).
-		WithArgs("users").
+	mock.ExpectQuery(regexp.QuoteMeta("SHOW TABLES LIKE 'users'")).
 		WillReturnRows(sqlmock.NewRows([]string{"Tables_in_test"}).AddRow("users"))
 
 	assert.NoError(t, Schema{DB: db}.EnsureSchema())
@@ -137,11 +135,9 @@ func TestSchema_CreatesMissingTable(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close()
 
-	mock.ExpectQuery(regexp.QuoteMeta("SHOW TABLES LIKE ?")).
-		WithArgs("clients").
+	mock.ExpectQuery(regexp.QuoteMeta("SHOW TABLES LIKE 'clients'")).
 		WillReturnRows(sqlmock.NewRows([]string{"Tables_in_test"}).AddRow("clients"))
-	mock.ExpectQuery(regexp.QuoteMeta("SHOW TABLES LIKE ?")).
-		WithArgs("users").
+	mock.ExpectQuery(regexp.QuoteMeta("SHOW TABLES LIKE 'users'")).
 		WillReturnRows(sqlmock.NewRows([]string{"Tables_in_test"}))
 	mock.ExpectExec(regexp.QuoteMeta(datamodel.UsersSQL)).
 		WillReturnResult(sqlmock.NewResult(0, 0))
@@ -155,11 +151,9 @@ func TestSchema_EnsurePostgresSchema(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close()
 
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT 1 WHERE to_regclass($1) IS NOT NULL")).
-		WithArgs("clients").
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT 1 WHERE to_regclass('clients') IS NOT NULL")).
 		WillReturnRows(sqlmock.NewRows([]string{"?column?"}).AddRow(1))
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT 1 WHERE to_regclass($1) IS NOT NULL")).
-		WithArgs("users").
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT 1 WHERE to_regclass('users') IS NOT NULL")).
 		WillReturnRows(sqlmock.NewRows([]string{"?column?"}))
 	mock.ExpectExec(regexp.QuoteMeta(datamodel.PostgresUsersSQL)).
 		WillReturnResult(sqlmock.NewResult(0, 0))
@@ -173,8 +167,7 @@ func TestSchema_ExistenceCheckError(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close()
 
-	mock.ExpectQuery(regexp.QuoteMeta("SHOW TABLES LIKE ?")).
-		WithArgs("clients").
+	mock.ExpectQuery(regexp.QuoteMeta("SHOW TABLES LIKE 'clients'")).
 		WillReturnError(errors.New("lookup failed"))
 
 	err = Schema{DB: db}.EnsureSchema()

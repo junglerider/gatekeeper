@@ -55,19 +55,19 @@ func (s Schema) EnsureSchema() error {
 	switch s.Driver {
 	case "", "mysql":
 		tables = []tableDefinition{
-			{"clients", datamodel.ClientsSQL, "SHOW TABLES LIKE ?"},
-			{"users", datamodel.UsersSQL, "SHOW TABLES LIKE ?"},
+			{"clients", datamodel.ClientsSQL, "SHOW TABLES LIKE 'clients'"},
+			{"users", datamodel.UsersSQL, "SHOW TABLES LIKE 'users'"},
 		}
 	case "postgres":
 		tables = []tableDefinition{
-			{"clients", datamodel.PostgresClientsSQL, "SELECT 1 WHERE to_regclass($1) IS NOT NULL"},
-			{"users", datamodel.PostgresUsersSQL, "SELECT 1 WHERE to_regclass($1) IS NOT NULL"},
+			{"clients", datamodel.PostgresClientsSQL, "SELECT 1 WHERE to_regclass('clients') IS NOT NULL"},
+			{"users", datamodel.PostgresUsersSQL, "SELECT 1 WHERE to_regclass('users') IS NOT NULL"},
 		}
 	default:
 		return fmt.Errorf("unsupported database driver %q", s.Driver)
 	}
 	for _, table := range tables {
-		rows, err := s.DB.Query(table.existsQuery, table.name)
+		rows, err := s.DB.Query(table.existsQuery)
 		if err != nil {
 			return fmt.Errorf("check if %s table exists: %w", table.name, err)
 		}
