@@ -39,6 +39,19 @@ func tokenAuthFailureEvent(err error) *zerolog.Event {
 	return log.Info().Err(err)
 }
 
+func verifyClientAccessToken(token, realm string, config *app.Config) (jwt.MapClaims, error) {
+	realmConfig := config.Realms[realm]
+	expectedClaims := make(map[string]any, 3)
+	expectedClaims["typ"] = "at+jwt"
+	if value, ok := realmConfig.Claims["iss"]; ok {
+		expectedClaims["iss"] = value
+	}
+	if value, ok := realmConfig.Claims["aud"]; ok {
+		expectedClaims["aud"] = value
+	}
+	return auth.VerifyToken(token, realmConfig.VerificationPublicKey, expectedClaims)
+}
+
 // registers all client routes
 func (c *Controller) RegisterRoutes(public chi.Router, protected chi.Router) {
 	protected.Get("/clients", c.listHandler)
@@ -348,16 +361,7 @@ func (c *Controller) authHandler(w http.ResponseWriter, r *http.Request) {
 		c.StatusReply(w, 400, "token is required for authentication")
 		return
 	} else {
-		realmConfig := c.Config.Realms[realm]
-		expectedClaims := make(map[string]any, 3)
-		expectedClaims["typ"] = "at+jwt"
-		if value, ok := realmConfig.Claims["iss"]; ok {
-			expectedClaims["iss"] = value
-		}
-		if value, ok := realmConfig.Claims["aud"]; ok {
-			expectedClaims["aud"] = value
-		}
-		if claims, err = auth.VerifyToken(creds.AccessToken, realmConfig.VerificationPublicKey, expectedClaims); err != nil {
+		if claims, err = verifyClientAccessToken(creds.AccessToken, realm, c.Config); err != nil {
 			clientID, _ := auth.UnverifiedTokenIdentity(creds.AccessToken)
 			tokenAuthFailureEvent(err).
 				Str("realm", realm).

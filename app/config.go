@@ -17,6 +17,7 @@ type Config struct {
 	MasterKey string `yaml:"masterKey"`
 	Server    struct {
 		Port           int    `yaml:"port"`
+		GRPCPort       int    `yaml:"grpcPort"`
 		LogLevel       string `yaml:"logLevel"`
 		LogRequests    bool   `yaml:"logRequests"`
 		PrettyPrint    bool   `yaml:"prettyPrint"`
@@ -65,6 +66,9 @@ func ReadConfig() (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	if config.Server.GRPCPort == 0 {
+		config.Server.GRPCPort = 6502
+	}
 
 	if err := config.validate(); err != nil {
 		return nil, err
@@ -97,6 +101,9 @@ func (config *Config) validate() error {
 	}
 	if config.Server.ApiKeyCacheTTL <= 0 {
 		validationErrors = append(validationErrors, errors.New("server.apiKeyCacheTTL must be a positive integer"))
+	}
+	if config.Server.GRPCPort < 1 || config.Server.GRPCPort > 65535 {
+		validationErrors = append(validationErrors, errors.New("server.grpcPort must be between 1 and 65535"))
 	}
 	for name, realm := range config.Realms {
 		if strings.Contains(name, ":") {

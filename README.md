@@ -19,6 +19,7 @@ Gatekeeper also provides protected endpoints to manage client and user accounts.
 - supports authentication via API key
 - generates OTP QR code and URI
 - EdDSA (Ed25519) asymmetric key signing
+- fast token authentication via gRPC
 - minimal and flexible
 - secure storage
 - works with either MySQL or PostgreSQL RDBMS
@@ -82,6 +83,12 @@ vim config.yaml
 - store these tokens in your session for subsequent use
 - to end a session, send `POST /clients/logout` or `POST /users/logout` with the refresh token in the request body
 - when an access or a refresh token expires or when the session expires, you receive a 401 Unauthorized response from the authentication endpoint
+
+### gRPC authentication
+
+The `gatekeeper.client.v1.AuthService/Auth` and `gatekeeper.user.v1.AuthService/Auth` RPCs provide JWT verification equivalent to `POST /clients/auth` and `POST /users/auth`, respectively. Each accepts an `AuthRequest` containing `token` and an optional `realm` (defaults to `api`) and returns verified claims in `AuthResponse.claims`. Both enforce the access-token type and any configured issuer and audience claims. Missing tokens or unknown realms return `INVALID_ARGUMENT`; invalid or expired tokens return `UNAUTHENTICATED`. The client RPC does not accept API keys.
+
+The gRPC listener uses `server.grpcPort` (default `6502`); the protobuf contracts are in [proto/client/v1/client_auth.proto](./proto/client/v1/client_auth.proto) and [proto/user/v1/user_auth.proto](./proto/user/v1/user_auth.proto). The listener does not configure TLS itself, so expose it only through a trusted network or TLS-terminating infrastructure.
 
 ### Two-factor authentication
 

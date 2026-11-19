@@ -1,0 +1,20 @@
+syntax = "proto3";
+
+package gatekeeper.client.v1;
+
+option go_package = "junglerider/gatekeeper/client/pb;clientpb";
+
+import "google/protobuf/struct.proto";
+
+service AuthService {
+  rpc Auth(AuthRequest) returns (AuthResponse);
+}
+
+message AuthRequest {
+  string token = 1;
+  string realm = 2;
+}
+
+message AuthResponse {
+  google.protobuf.Struct claims = 1;
+}

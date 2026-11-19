@@ -102,6 +102,15 @@ func TestReadConfig_PrettyPrint_DefaultFalse(t *testing.T) {
 	})
 }
 
+func TestReadConfig_GRPCPort_Default(t *testing.T) {
+	t.Setenv("MASTER_KEY", validMasterKey)
+	withTempConfigDir(t, "config.yml", validConfigYAML("false"), func() {
+		cfg, err := ReadConfig()
+		require.NoError(t, err)
+		assert.Equal(t, 6502, cfg.Server.GRPCPort)
+	})
+}
+
 func TestReadConfig_MasterKey_FromEnv(t *testing.T) {
 	envMasterKey := "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE="
 	t.Setenv("MASTER_KEY", envMasterKey)

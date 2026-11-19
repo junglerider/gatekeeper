@@ -85,12 +85,14 @@ func TestRegisterRoutes(t *testing.T) {
 		Config: &Config{
 			Server: struct {
 				Port           int    `yaml:"port"`
+				GRPCPort       int    `yaml:"grpcPort"`
 				LogLevel       string `yaml:"logLevel"`
 				LogRequests    bool   `yaml:"logRequests"`
 				PrettyPrint    bool   `yaml:"prettyPrint"`
 				ApiKeyCacheTTL int    `yaml:"apiKeyCacheTTL"`
 			}{
 				Port:           8080,
+				GRPCPort:       6502,
 				LogLevel:       "info",
 				LogRequests:    false,
 				PrettyPrint:    true,
@@ -164,12 +166,14 @@ func TestRegisterRoutes_LogRequestsDisabled(t *testing.T) {
 		Config: &Config{
 			Server: struct {
 				Port           int    `yaml:"port"`
+				GRPCPort       int    `yaml:"grpcPort"`
 				LogLevel       string `yaml:"logLevel"`
 				LogRequests    bool   `yaml:"logRequests"`
 				PrettyPrint    bool   `yaml:"prettyPrint"`
 				ApiKeyCacheTTL int    `yaml:"apiKeyCacheTTL"`
 			}{
 				Port:           8080,
+				GRPCPort:       6502,
 				LogLevel:       "info",
 				LogRequests:    false,
 				PrettyPrint:    true,
